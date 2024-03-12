@@ -16,7 +16,7 @@ const readFileAsBase64 = (file) => {
 };
 
 const endPoint =
-  "https://script.google.com/macros/s/AKfycbwTHoBwo4RKtAo1Gz3ad0e8ydwUI4TBACO1Wcqnu9FYu_SFHRTVeXJuPHSeRx9o6W_T/exec";
+  "https://script.google.com/macros/s/AKfycbwHdjbA6FEaz_ZVQcT1orzvHG1ASzilvxRX7ooiV7jUqp8b18S8_mL5Uszu9PO9vStw/exec";
 
 export default function MainForm() {
   const [selectedDriver, setSelectedDriver] = useState({});
