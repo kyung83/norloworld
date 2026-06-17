@@ -5,7 +5,7 @@ import ComboBox from "./ComboBox";
 import ComboBoxGroup from "./ComboBoxGroup";
 import Spinner from "./Spinner";
 // import ProgressBar from './ProgressBar'
-
+// Redeploy trigger
 const readFileAsBase64 = (file) => {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
