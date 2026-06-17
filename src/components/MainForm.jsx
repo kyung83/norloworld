@@ -29,11 +29,14 @@ export default function MainForm() {
   const [successMessage, setSuccessMessage] = useState(false);
   // const [percentage, setPercentage] = useState(0)
 
+  const isSubmittedByMissing = !submittedBy?.name;
+
   const [{ data, loading, error }] = useAxios(
     endPoint + "?route=getIncidentTypes"
   );
+
   const [
-    { data: postData, loading: postLoading, error: postError },
+    { loading: postLoading, error: postError },
     executePost,
   ] = useAxios(
     {
@@ -46,9 +49,10 @@ export default function MainForm() {
   const handleFileChange = async (event) => {
     const files = event.target.files;
     const allFileData = [];
-  
+
     for (let i = 0; i < files.length; i++) {
       const myFile = files[i];
+
       if (myFile) {
         const contentBase64String = await readFileAsBase64(myFile);
         const contentType = myFile.type;
@@ -57,24 +61,29 @@ export default function MainForm() {
         allFileData.push(file);
       }
     }
+
     setFileData(allFileData);
   };
 
   useEffect(() => {
-    if (selectedDriver && selectedDriver.name) {  
-      const selectedDriverData = data.drivers.find(driver => driver[0] === selectedDriver.name);
+    if (selectedDriver && selectedDriver.name && data?.drivers) {
+      const selectedDriverData = data.drivers.find(
+        (driver) => driver[0] === selectedDriver.name
+      );
+
       if (selectedDriverData) {
         setHomeTerminal(selectedDriverData[1]);
       }
     }
-  }, [selectedDriver]);
+  }, [selectedDriver, data]);
 
   async function handleSubmit(e) {
     e.preventDefault();
+
     if (
-      !selectedDriver ||
-      !selectedIncident ||
-      !submittedBy ||
+      !selectedDriver?.name ||
+      !selectedIncident?.name ||
+      isSubmittedByMissing ||
       !description ||
       !selectedHomeTerminal
     ) {
@@ -92,9 +101,11 @@ export default function MainForm() {
     };
 
     console.log(body);
+
     const response = await executePost({
       data: JSON.stringify(body),
     });
+
     if (response) {
       setDescription("");
       setHomeTerminal("");
@@ -104,6 +115,7 @@ export default function MainForm() {
       setSelectedIncident(null);
       setSuccessMessage(true);
       setWarning(false);
+
       setTimeout(() => {
         setSuccessMessage(false);
       }, 4000);
@@ -112,40 +124,48 @@ export default function MainForm() {
 
   if (error || postError)
     return <h2 className="text-lg text-center p-4">Error</h2>;
+
   if (loading || postLoading) return <Spinner />;
 
-  console.log(data)
+  console.log(data);
 
   return (
     <form onSubmit={handleSubmit}>
       <div className="space-y-12">
         <div className="border-b border-white/10">
-        <ComboBox
-        title="* Driver Name"
-        items={data.drivers.map((driver, i) => ({ id: i, name: driver[0] }))}
-        selectedPerson={selectedDriver}
-        setSelectedPerson={setSelectedDriver}
-      />
-      <div className="flex flex-col">
-        <label className="text-sm text-stone-500">
-          * Home Terminal
-        </label>
-        <input
-          type="text"
-          value={selectedHomeTerminal}
-          onChange={(e) => setHomeTerminal(e.target.value)}
-          className="p-2 rounded border shadow-sm"
-        />
+          <ComboBox
+            title="* Driver Name"
+            items={data.drivers.map((driver, i) => ({
+              id: i,
+              name: driver[0],
+            }))}
+            selectedPerson={selectedDriver}
+            setSelectedPerson={setSelectedDriver}
+          />
+
+          <div className="flex flex-col">
+            <label className="text-sm text-stone-500">* Home Terminal</label>
+            <input
+              type="text"
+              value={selectedHomeTerminal}
+              onChange={(e) => setHomeTerminal(e.target.value)}
+              className="p-2 rounded border shadow-sm"
+            />
           </div>
+
           <ComboBoxGroup
             title="* Coaching Type"
             items={data.types.map((typeone) => ({
               ...typeone,
-              items: typeone.items.map((item) => ({ id: item, name: item })),
+              items: typeone.items.map((item) => ({
+                id: item,
+                name: item,
+              })),
             }))}
             selectedPerson={selectedIncident}
             setSelectedPerson={setSelectedIncident}
           />
+
           <div className="mb-4">
             <label
               htmlFor="comment"
@@ -153,23 +173,29 @@ export default function MainForm() {
             >
               * Description
             </label>
+
             <div className="mt-2">
               <textarea
                 rows={4}
                 name="comment"
                 id="comment"
                 onChange={(e) => setDescription(e.target.value)}
+                value={description}
                 className="block w-full rounded-md border-0 py-1.5 text-gray-900 shadow-sm ring-1 ring-inset ring-gray-300 placeholder:text-gray-400 focus:ring-2 focus:ring-inset focus:ring-indigo-600 sm:text-sm sm:leading-6"
-                defaultValue={""}
               />
             </div>
           </div>
+
           <ComboBox
             title="* Submitted by"
-            items={data.users.map((name, i) => ({ id: i, name }))}
+            items={data.users.map((name, i) => ({
+              id: i,
+              name,
+            }))}
             selectedPerson={submittedBy}
             setSelectedPerson={setSubmittedBy}
           />
+
           <div className="my-4">
             <label
               htmlFor="file"
@@ -177,21 +203,24 @@ export default function MainForm() {
             >
               Attachment upload
             </label>
+
             <div className="mt-2">
               <input
                 type="file"
                 id="inputfile"
                 onChange={handleFileChange}
-                multiple 
+                multiple
                 className="text-sm text-stone-500 file:mr-5 file:py-1 file:px-3 file:border-[1px] file:text-xs file:font-medium file:bg-stone-50 file:text-stone-700 hover:file:cursor-pointer hover:file:bg-blue-50 hover:file:text-blue-700"
               />
             </div>
           </div>
+
           {warning && (
             <p className="text-sm text-red-600 mt-4 mb-4" id="email-error">
               Complete the required fields *
             </p>
           )}
+
           {successMessage && (
             <div className="rounded-md bg-green-50 p-4 my-4" id="message">
               <div className="flex">
@@ -209,11 +238,13 @@ export default function MainForm() {
                     />
                   </svg>
                 </div>
+
                 <div className="ml-3">
                   <p className="text-sm font-medium text-green-800">
                     Successfully uploaded
                   </p>
                 </div>
+
                 <div className="ml-auto pl-3">
                   <div className="-mx-1.5 -my-1.5">
                     <button
@@ -235,14 +266,21 @@ export default function MainForm() {
               </div>
             </div>
           )}
+
           {/* <ProgressBar progress={percentage} /> */}
         </div>
       </div>
+
       <button
         type="submit"
+        disabled={isSubmittedByMissing}
         className={`${
           !warning && "mt-4"
-        } rounded-md bg-emerald-700 px-12 py-2 text-sm font-semibold text-white shadow-sm hover:bg-emerald-400 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-500`}
+        } rounded-md px-12 py-2 text-sm font-semibold shadow-sm focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 ${
+          isSubmittedByMissing
+            ? "bg-gray-300 text-gray-500 cursor-not-allowed"
+            : "bg-emerald-700 text-white hover:bg-emerald-400 focus-visible:outline-emerald-500"
+        }`}
       >
         Submit
       </button>
