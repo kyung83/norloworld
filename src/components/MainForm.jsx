@@ -75,7 +75,7 @@ export default function MainForm() {
     scheduledStartTime
       ? formatTimeForDescription(scheduledStartTime)
       : "[scheduled start time]"
-  }. (No additional information needed)`;
+  }.`;
 
   const finalDescription = isCallIn ? callInDescription : description;
 
