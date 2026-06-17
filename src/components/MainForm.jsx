@@ -5,7 +5,7 @@ import ComboBox from "./ComboBox";
 import ComboBoxGroup from "./ComboBoxGroup";
 import Spinner from "./Spinner";
 // import ProgressBar from './ProgressBar'
-// Redeploy trigger
+
 const readFileAsBase64 = (file) => {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
@@ -18,27 +18,72 @@ const readFileAsBase64 = (file) => {
 const endPoint =
   "https://script.google.com/macros/s/AKfycbxDTKoWW2joDpaK075TH2yUY6FFvVIWByjsj_Yqfvfwai-n-B6IUfaWnaO5T_ImefId/exec";
 
+const getTodayDate = () => {
+  return new Date().toISOString().split("T")[0];
+};
+
+const formatDateForDescription = (dateValue) => {
+  if (!dateValue) return "";
+
+  const [year, month, day] = dateValue.split("-");
+  return `${month}/${day}/${year}`;
+};
+
+const formatTimeForDescription = (timeValue) => {
+  if (!timeValue) return "";
+
+  const [hours, minutes] = timeValue.split(":");
+  const date = new Date();
+  date.setHours(Number(hours));
+  date.setMinutes(Number(minutes));
+
+  return date.toLocaleTimeString([], {
+    hour: "numeric",
+    minute: "2-digit",
+  });
+};
+
 export default function MainForm() {
   const [selectedDriver, setSelectedDriver] = useState({});
   const [selectedIncident, setSelectedIncident] = useState(null);
   const [selectedHomeTerminal, setHomeTerminal] = useState("");
   const [submittedBy, setSubmittedBy] = useState({});
   const [description, setDescription] = useState("");
+
+  const [calledInDate, setCalledInDate] = useState(getTodayDate());
+  const [calledInTime, setCalledInTime] = useState("");
+  const [scheduledStartDate, setScheduledStartDate] = useState(getTodayDate());
+  const [scheduledStartTime, setScheduledStartTime] = useState("");
+
   const [fileData, setFileData] = useState(null);
   const [warning, setWarning] = useState(false);
   const [successMessage, setSuccessMessage] = useState(false);
   // const [percentage, setPercentage] = useState(0)
 
   const isSubmittedByMissing = !submittedBy?.name;
+  const isCallIn =
+    selectedIncident?.name?.toLowerCase().replace(/\s+/g, "").includes("call-in") ||
+    selectedIncident?.name?.toLowerCase().replace(/\s+/g, "").includes("callin");
+
+  const callInDescription = `Driver called in on ${formatDateForDescription(
+    calledInDate
+  )} at ${
+    calledInTime ? formatTimeForDescription(calledInTime) : "[time called in]"
+  }. Driver was scheduled to start on ${formatDateForDescription(
+    scheduledStartDate
+  )} at ${
+    scheduledStartTime
+      ? formatTimeForDescription(scheduledStartTime)
+      : "[scheduled start time]"
+  }. (No additional information needed)`;
+
+  const finalDescription = isCallIn ? callInDescription : description;
 
   const [{ data, loading, error }] = useAxios(
     endPoint + "?route=getIncidentTypes"
   );
 
-  const [
-    { loading: postLoading, error: postError },
-    executePost,
-  ] = useAxios(
+  const [{ loading: postLoading, error: postError }, executePost] = useAxios(
     {
       url: endPoint + "?route=createIncident",
       method: "POST",
@@ -77,6 +122,13 @@ export default function MainForm() {
     }
   }, [selectedDriver, data]);
 
+  useEffect(() => {
+    if (isCallIn) {
+      setCalledInDate((currentValue) => currentValue || getTodayDate());
+      setScheduledStartDate((currentValue) => currentValue || getTodayDate());
+    }
+  }, [isCallIn]);
+
   async function handleSubmit(e) {
     e.preventDefault();
 
@@ -84,8 +136,9 @@ export default function MainForm() {
       !selectedDriver?.name ||
       !selectedIncident?.name ||
       isSubmittedByMissing ||
-      !description ||
-      !selectedHomeTerminal
+      !finalDescription ||
+      !selectedHomeTerminal ||
+      (isCallIn && (!calledInDate || !calledInTime || !scheduledStartDate || !scheduledStartTime))
     ) {
       return setWarning(true);
     }
@@ -94,7 +147,7 @@ export default function MainForm() {
       driverName: selectedDriver.name,
       homeTerminal: selectedHomeTerminal,
       datetime: new Date().toISOString(),
-      description: description,
+      description: finalDescription,
       incident: selectedIncident.name,
       submittedBy: submittedBy.name,
       file: fileData,
@@ -113,6 +166,10 @@ export default function MainForm() {
       setSubmittedBy({});
       setSelectedDriver({});
       setSelectedIncident(null);
+      setCalledInDate(getTodayDate());
+      setCalledInTime("");
+      setScheduledStartDate(getTodayDate());
+      setScheduledStartTime("");
       setSuccessMessage(true);
       setWarning(false);
 
@@ -126,8 +183,6 @@ export default function MainForm() {
     return <h2 className="text-lg text-center p-4">Error</h2>;
 
   if (loading || postLoading) return <Spinner />;
-
-  console.log(data);
 
   return (
     <form onSubmit={handleSubmit}>
@@ -166,6 +221,84 @@ export default function MainForm() {
             setSelectedPerson={setSelectedIncident}
           />
 
+          {isCallIn && (
+            <div className="my-4 rounded-lg border border-emerald-200 bg-emerald-50 p-4">
+              <h3 className="text-sm font-semibold text-emerald-900">
+                Call-in Details
+              </h3>
+
+              <p className="mt-1 text-sm text-emerald-700">
+                Fill in the times below. The description will be generated automatically.
+              </p>
+
+              <div className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-2">
+                <div>
+                  <label
+                    htmlFor="calledInDate"
+                    className="block text-sm font-medium text-gray-900"
+                  >
+                    * Date driver called in
+                  </label>
+                  <input
+                    type="date"
+                    id="calledInDate"
+                    value={calledInDate}
+                    onChange={(e) => setCalledInDate(e.target.value)}
+                    className="mt-2 block w-full rounded-md border-0 py-1.5 px-2 text-gray-900 shadow-sm ring-1 ring-inset ring-gray-300 focus:ring-2 focus:ring-inset focus:ring-emerald-600 sm:text-sm sm:leading-6"
+                  />
+                </div>
+
+                <div>
+                  <label
+                    htmlFor="calledInTime"
+                    className="block text-sm font-medium text-gray-900"
+                  >
+                    * Time driver called in
+                  </label>
+                  <input
+                    type="time"
+                    id="calledInTime"
+                    value={calledInTime}
+                    onChange={(e) => setCalledInTime(e.target.value)}
+                    className="mt-2 block w-full rounded-md border-0 py-1.5 px-2 text-gray-900 shadow-sm ring-1 ring-inset ring-gray-300 focus:ring-2 focus:ring-inset focus:ring-emerald-600 sm:text-sm sm:leading-6"
+                  />
+                </div>
+
+                <div>
+                  <label
+                    htmlFor="scheduledStartDate"
+                    className="block text-sm font-medium text-gray-900"
+                  >
+                    * Date driver was scheduled to start
+                  </label>
+                  <input
+                    type="date"
+                    id="scheduledStartDate"
+                    value={scheduledStartDate}
+                    onChange={(e) => setScheduledStartDate(e.target.value)}
+                    className="mt-2 block w-full rounded-md border-0 py-1.5 px-2 text-gray-900 shadow-sm ring-1 ring-inset ring-gray-300 focus:ring-2 focus:ring-inset focus:ring-emerald-600 sm:text-sm sm:leading-6"
+                  />
+                </div>
+
+                <div>
+                  <label
+                    htmlFor="scheduledStartTime"
+                    className="block text-sm font-medium text-gray-900"
+                  >
+                    * Time driver was scheduled to start
+                  </label>
+                  <input
+                    type="time"
+                    id="scheduledStartTime"
+                    value={scheduledStartTime}
+                    onChange={(e) => setScheduledStartTime(e.target.value)}
+                    className="mt-2 block w-full rounded-md border-0 py-1.5 px-2 text-gray-900 shadow-sm ring-1 ring-inset ring-gray-300 focus:ring-2 focus:ring-inset focus:ring-emerald-600 sm:text-sm sm:leading-6"
+                  />
+                </div>
+              </div>
+            </div>
+          )}
+
           <div className="mb-4">
             <label
               htmlFor="comment"
@@ -180,8 +313,13 @@ export default function MainForm() {
                 name="comment"
                 id="comment"
                 onChange={(e) => setDescription(e.target.value)}
-                value={description}
-                className="block w-full rounded-md border-0 py-1.5 text-gray-900 shadow-sm ring-1 ring-inset ring-gray-300 placeholder:text-gray-400 focus:ring-2 focus:ring-inset focus:ring-indigo-600 sm:text-sm sm:leading-6"
+                value={isCallIn ? callInDescription : description}
+                readOnly={isCallIn}
+                className={`block w-full rounded-md border-0 py-1.5 text-gray-900 shadow-sm ring-1 ring-inset ring-gray-300 placeholder:text-gray-400 sm:text-sm sm:leading-6 ${
+                  isCallIn
+                    ? "bg-gray-100 cursor-not-allowed"
+                    : "focus:ring-2 focus:ring-inset focus:ring-indigo-600"
+                }`}
               />
             </div>
           </div>
