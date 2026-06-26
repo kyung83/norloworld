@@ -59,7 +59,7 @@ export default function MainForm() {
   const [selectedHomeTerminal, setHomeTerminal] = useState("");
   const [submittedBy, setSubmittedBy] = useState({});
   const [description, setDescription] = useState("");
-  const [contactMethod, setContactMethod] = useState("");  // NEW
+  const [contactMethod, setContactMethod] = useState("");
 
   const [calledInDate, setCalledInDate] = useState(getTodayDate());
   const [calledInTime, setCalledInTime] = useState("");
@@ -70,8 +70,7 @@ export default function MainForm() {
   const [warning, setWarning] = useState(false);
   const [successMessage, setSuccessMessage] = useState(false);
 
-  const isSubmittedByMissing = !submittedBy?.name || !contactMethod;
-
+  // isCallIn and finalDescription must be defined BEFORE isSubmittedByMissing
   const isCallIn =
     selectedIncident?.name?.toLowerCase().replace(/\s+/g, "").includes("call-in") ||
     selectedIncident?.name?.toLowerCase().replace(/\s+/g, "").includes("callin");
@@ -83,6 +82,9 @@ export default function MainForm() {
   }.`;
 
   const finalDescription = isCallIn ? callInDescription : description;
+
+  // Button is disabled until Submitted By, Contact Method, and Description are all filled in
+  const isSubmitDisabled = !submittedBy?.name || !contactMethod || !finalDescription;
 
   const [{ data, loading, error }] = useAxios(endPoint + "?route=getIncidentTypes");
 
@@ -128,10 +130,10 @@ export default function MainForm() {
     if (
       !selectedDriver?.name ||
       !selectedIncident?.name ||
-      isSubmittedByMissing ||
+      !submittedBy?.name ||
+      !contactMethod ||
       !finalDescription ||
       !selectedHomeTerminal ||
-      !contactMethod ||  // NEW validation
       (isCallIn && (!calledInDate || !calledInTime || !scheduledStartDate || !scheduledStartTime))
     ) {
       return setWarning(true);
@@ -144,7 +146,7 @@ export default function MainForm() {
       description: finalDescription,
       incident: selectedIncident.name,
       submittedBy: submittedBy.name,
-      contactMethod: contactMethod,  // NEW
+      contactMethod: contactMethod,
       file: fileData,
     };
 
@@ -157,7 +159,7 @@ export default function MainForm() {
       setSubmittedBy({});
       setSelectedDriver({});
       setSelectedIncident(null);
-      setContactMethod("");  // NEW reset
+      setContactMethod("");
       setCalledInDate(getTodayDate());
       setCalledInTime("");
       setScheduledStartDate(getTodayDate());
@@ -265,7 +267,6 @@ export default function MainForm() {
           setSelectedPerson={setSubmittedBy}
         />
 
-        {/* NEW DROPDOWN */}
         <Field label="Made contact with driver regarding this coaching by" required>
           <select
             value={contactMethod}
@@ -312,16 +313,16 @@ export default function MainForm() {
       )}
 
       <div className="flex items-center justify-between pt-2">
-        {isSubmittedByMissing && (
+        {isSubmitDisabled && (
           <p className="text-xs text-slate-400 italic">
-            Select a name in "Submitted By" to enable the submit button.
+            Complete all required fields to enable the submit button.
           </p>
         )}
         <button
           type="submit"
-          disabled={isSubmittedByMissing || !finalDescription}
+          disabled={isSubmitDisabled}
           className={`ml-auto rounded-lg px-8 py-2.5 text-sm font-semibold shadow-sm transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 ${
-            isSubmittedByMissing || !finalDescription
+            isSubmitDisabled
               ? "cursor-not-allowed bg-slate-200 text-slate-400"
               : "bg-emerald-700 text-white hover:bg-emerald-600 focus-visible:outline-emerald-600"
           }`}
