@@ -70,7 +70,7 @@ export default function MainForm() {
   const [warning, setWarning] = useState(false);
   const [successMessage, setSuccessMessage] = useState(false);
 
-  const isSubmittedByMissing = !submittedBy?.name || !contactMethod;
+  const isSubmittedByMissing = !submittedBy?.name || !contactMethod || !finalDescription;
 
   const isCallIn =
     selectedIncident?.name?.toLowerCase().replace(/\s+/g, "").includes("call-in") ||
