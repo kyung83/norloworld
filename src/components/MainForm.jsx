@@ -70,7 +70,7 @@ export default function MainForm() {
   const [warning, setWarning] = useState(false);
   const [successMessage, setSuccessMessage] = useState(false);
 
-  const isSubmittedByMissing = !submittedBy?.name || !contactMethod || !finalDescription;
+  const isSubmittedByMissing = !submittedBy?.name || !contactMethod;
 
   const isCallIn =
     selectedIncident?.name?.toLowerCase().replace(/\s+/g, "").includes("call-in") ||
@@ -319,9 +319,9 @@ export default function MainForm() {
         )}
         <button
           type="submit"
-          disabled={isSubmittedByMissing}
+          disabled={isSubmittedByMissing || !finalDescription}
           className={`ml-auto rounded-lg px-8 py-2.5 text-sm font-semibold shadow-sm transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 ${
-            isSubmittedByMissing
+            isSubmittedByMissing || !finalDescription
               ? "cursor-not-allowed bg-slate-200 text-slate-400"
               : "bg-emerald-700 text-white hover:bg-emerald-600 focus-visible:outline-emerald-600"
           }`}
