@@ -69,8 +69,8 @@ export default function MainForm() {
   const [fileData, setFileData] = useState(null);
   const [warning, setWarning] = useState(false);
   const [successMessage, setSuccessMessage] = useState(false);
+  const [submitError, setSubmitError] = useState("");
 
-  // isCallIn and finalDescription must be defined BEFORE isSubmittedByMissing
   const isCallIn =
     selectedIncident?.name?.toLowerCase().replace(/\s+/g, "").includes("call-in") ||
     selectedIncident?.name?.toLowerCase().replace(/\s+/g, "").includes("callin");
@@ -83,13 +83,20 @@ export default function MainForm() {
 
   const finalDescription = isCallIn ? callInDescription : description;
 
-  // Button is disabled until Submitted By, Contact Method, and Description are all filled in
-  const isSubmitDisabled = !submittedBy?.name || !contactMethod || !finalDescription;
+  const isSubmitDisabled =
+    !submittedBy?.name || !contactMethod || !finalDescription;
 
-  const [{ data, loading, error }] = useAxios(endPoint + "?route=getIncidentTypes");
+  // Loading the dropdown data. 60s timeout so a stalled request gives up
+  // and shows a Retry button instead of spinning forever.
+  const [{ data, loading, error }, refetchTypes] = useAxios({
+    url: endPoint + "?route=getIncidentTypes",
+    method: "GET",
+    timeout: 60000,
+  });
 
-  const [{ loading: postLoading, error: postError }, executePost] = useAxios(
-    { url: endPoint + "?route=createIncident", method: "POST" },
+  // Submitting. Separate timeout; a failure here must NOT wipe the form.
+  const [{ loading: postLoading }, executePost] = useAxios(
+    { url: endPoint + "?route=createIncident", method: "POST", timeout: 60000 },
     { manual: true }
   );
 
@@ -126,6 +133,7 @@ export default function MainForm() {
 
   async function handleSubmit(e) {
     e.preventDefault();
+    setSubmitError("");
 
     if (
       !selectedDriver?.name ||
@@ -150,9 +158,19 @@ export default function MainForm() {
       file: fileData,
     };
 
-    const response = await executePost({ data: JSON.stringify(body) });
+    try {
+      const response = await executePost({ data: JSON.stringify(body) });
 
-    if (response) {
+      // The backend answers HTTP 200 even when it fails, so the real
+      // status lives in the body. Check it before declaring success.
+      const result = response?.data;
+      if (result && (result.status === "error" || result.error)) {
+        setSubmitError(
+          result.message || result.error || "The server rejected the submission."
+        );
+        return;
+      }
+
       setDescription("");
       setHomeTerminal("");
       setFileData(null);
@@ -167,17 +185,49 @@ export default function MainForm() {
       setSuccessMessage(true);
       setWarning(false);
       setTimeout(() => setSuccessMessage(false), 4000);
+    } catch (err) {
+      // Network failure or timeout. Keep everything the user typed on
+      // screen so they can simply press Submit again.
+      setSubmitError(
+        "Could not reach the server. Your entries are still here — press Submit to try again."
+      );
     }
   }
 
-  if (error || postError)
+  // ---- Load states -------------------------------------------------
+  // The backend returns HTTP 200 with an {error:"..."} body when it
+  // fails, so a bad payload has to be detected by shape, not by status.
+  // Previously the code went straight to data.drivers.map(...) which
+  // threw a TypeError and blanked the whole page.
+  const payloadBad =
+    !loading &&
+    !error &&
+    (!data ||
+      data.error ||
+      !Array.isArray(data.drivers) ||
+      !Array.isArray(data.users) ||
+      !Array.isArray(data.types));
+
+  if (loading) return <Spinner />;
+
+  if (error || payloadBad) {
     return (
-      <div className="rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-700">
-        Something went wrong loading the form. Please refresh and try again.
+      <div className="rounded-lg border border-amber-200 bg-amber-50 p-5 text-sm text-amber-900">
+        <p className="font-semibold">The form could not load its data.</p>
+        <p className="mt-1 text-amber-800">
+          This is usually the Google Sheets backend being slow or busy. Nothing
+          you submitted has been lost.
+        </p>
+        <button
+          type="button"
+          onClick={() => refetchTypes()}
+          className="mt-4 rounded-lg bg-amber-700 px-5 py-2 text-sm font-semibold text-white hover:bg-amber-600"
+        >
+          Try again
+        </button>
       </div>
     );
-
-  if (loading || postLoading) return <Spinner />;
+  }
 
   const inputClass =
     "mt-1 block w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 shadow-sm placeholder:text-slate-400 focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/30";
@@ -214,7 +264,7 @@ export default function MainForm() {
           required
           items={data.types.map((typeone) => ({
             ...typeone,
-            items: typeone.items.map((item) => ({ id: item, name: item })),
+            items: (typeone.items || []).map((item) => ({ id: item, name: item })),
           }))}
           selectedPerson={selectedIncident}
           setSelectedPerson={setSelectedIncident}
@@ -303,6 +353,15 @@ export default function MainForm() {
         </div>
       )}
 
+      {submitError && (
+        <div className="flex items-start gap-2 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+          <svg className="mt-0.5 h-4 w-4 shrink-0" fill="currentColor" viewBox="0 0 20 20">
+            <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7 4a1 1 0 11-2 0 1 1 0 012 0zm-1-9a1 1 0 00-1 1v4a1 1 0 102 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
+          </svg>
+          <span>{submitError}</span>
+        </div>
+      )}
+
       {successMessage && (
         <div className="flex items-center gap-2 rounded-lg border border-green-200 bg-green-50 px-4 py-3 text-sm text-green-800">
           <svg className="h-4 w-4 shrink-0 text-green-500" viewBox="0 0 20 20" fill="currentColor">
@@ -313,21 +372,21 @@ export default function MainForm() {
       )}
 
       <div className="flex items-center justify-between pt-2">
-        {isSubmitDisabled && (
+        {isSubmitDisabled && !postLoading && (
           <p className="text-xs text-slate-400 italic">
             Complete all required fields to enable the submit button.
           </p>
         )}
         <button
           type="submit"
-          disabled={isSubmitDisabled}
+          disabled={isSubmitDisabled || postLoading}
           className={`ml-auto rounded-lg px-8 py-2.5 text-sm font-semibold shadow-sm transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 ${
-            isSubmitDisabled
+            isSubmitDisabled || postLoading
               ? "cursor-not-allowed bg-slate-200 text-slate-400"
               : "bg-emerald-700 text-white hover:bg-emerald-600 focus-visible:outline-emerald-600"
           }`}
         >
-          Submit Coaching Record
+          {postLoading ? "Submitting…" : "Submit Coaching Record"}
         </button>
       </div>
     </form>
