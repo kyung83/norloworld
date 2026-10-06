@@ -16,6 +16,38 @@ const readFileAsBase64 = (file) => {
 const endPoint =
   "https://script.google.com/macros/s/AKfycbxDTKoWW2joDpaK075TH2yUY6FFvVIWByjsj_Yqfvfwai-n-B6IUfaWnaO5T_ImefId/exec";
 
+// The dropdown data (drivers / users / coaching types) changes rarely, but the
+// Google Apps Script backend can take 30-60s when it is queued behind the
+// account's other scheduled scripts. So we keep our own copy in the browser and
+// render the form from it instantly, then quietly refresh it in the background.
+const LS_KEY = "norlo_coaching_dropdowns_v1";
+
+const isUsablePayload = (d) =>
+  !!d &&
+  !d.error &&
+  Array.isArray(d.drivers) &&
+  Array.isArray(d.users) &&
+  Array.isArray(d.types);
+
+const loadCachedDropdowns = () => {
+  try {
+    const raw = window.localStorage.getItem(LS_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    return isUsablePayload(parsed) ? parsed : null;
+  } catch (e) {
+    return null; // private browsing, blocked storage, corrupt entry
+  }
+};
+
+const saveCachedDropdowns = (d) => {
+  try {
+    window.localStorage.setItem(LS_KEY, JSON.stringify(d));
+  } catch (e) {
+    /* storage full or blocked - not fatal, the form still works */
+  }
+};
+
 const getTodayDate = () => new Date().toISOString().split("T")[0];
 
 const formatDateForDescription = (dateValue) => {
@@ -86,13 +118,28 @@ export default function MainForm() {
   const isSubmitDisabled =
     !submittedBy?.name || !contactMethod || !finalDescription;
 
-  // Loading the dropdown data. 60s timeout so a stalled request gives up
-  // and shows a Retry button instead of spinning forever.
+  // Start from whatever the browser already has, so the form can render on the
+  // first paint even while the network request is still in flight.
+  const [cachedData, setCachedData] = useState(loadCachedDropdowns);
+
+  // 60s timeout so a stalled request gives up instead of spinning forever.
   const [{ data, loading, error }, refetchTypes] = useAxios({
     url: endPoint + "?route=getIncidentTypes",
     method: "GET",
     timeout: 60000,
   });
+
+  // Whenever a good response arrives, keep it for next time.
+  useEffect(() => {
+    if (isUsablePayload(data)) {
+      saveCachedDropdowns(data);
+      setCachedData(data);
+    }
+  }, [data]);
+
+  // Prefer the live response; fall back to the stored copy.
+  const formData = isUsablePayload(data) ? data : cachedData;
+  const usingCachedCopy = !isUsablePayload(data) && !!cachedData;
 
   // Submitting. Separate timeout; a failure here must NOT wipe the form.
   const [{ loading: postLoading }, executePost] = useAxios(
@@ -118,11 +165,11 @@ export default function MainForm() {
   };
 
   useEffect(() => {
-    if (selectedDriver?.name && data?.drivers) {
-      const found = data.drivers.find((d) => d[0] === selectedDriver.name);
+    if (selectedDriver?.name && formData?.drivers) {
+      const found = formData.drivers.find((d) => d[0] === selectedDriver.name);
       if (found) setHomeTerminal(found[1]);
     }
-  }, [selectedDriver, data]);
+  }, [selectedDriver, formData]);
 
   useEffect(() => {
     if (isCallIn) {
@@ -195,22 +242,15 @@ export default function MainForm() {
   }
 
   // ---- Load states -------------------------------------------------
-  // The backend returns HTTP 200 with an {error:"..."} body when it
-  // fails, so a bad payload has to be detected by shape, not by status.
-  // Previously the code went straight to data.drivers.map(...) which
-  // threw a TypeError and blanked the whole page.
-  const payloadBad =
-    !loading &&
-    !error &&
-    (!data ||
-      data.error ||
-      !Array.isArray(data.drivers) ||
-      !Array.isArray(data.users) ||
-      !Array.isArray(data.types));
+  // The backend returns HTTP 200 with an {error:"..."} body when it fails,
+  // so a bad payload has to be detected by shape, not by HTTP status.
+  //
+  // If we have a stored copy we show the form straight away and let the
+  // refresh happen in the background. Only a first-ever visit with no
+  // stored copy ever sees the spinner.
+  if (!formData && loading) return <Spinner />;
 
-  if (loading) return <Spinner />;
-
-  if (error || payloadBad) {
+  if (!formData) {
     return (
       <div className="rounded-lg border border-amber-200 bg-amber-50 p-5 text-sm text-amber-900">
         <p className="font-semibold">The form could not load its data.</p>
@@ -235,13 +275,37 @@ export default function MainForm() {
   return (
     <form onSubmit={handleSubmit} noValidate className="space-y-6">
 
+      {/* Shown only when we are rendering from the stored copy while a
+          refresh is still running, or when the refresh failed outright. */}
+      {usingCachedCopy && (
+        <div className="flex items-center gap-2 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-500">
+          {loading ? (
+            <>
+              <span className="h-3 w-3 animate-spin rounded-full border-2 border-slate-300 border-t-slate-500" />
+              Updating driver and user lists in the background — the form is ready to use.
+            </>
+          ) : (
+            <>
+              <span>Showing the last known driver and user lists. Could not reach the server to refresh them.</span>
+              <button
+                type="button"
+                onClick={() => refetchTypes()}
+                className="ml-auto shrink-0 rounded border border-slate-300 bg-white px-2 py-0.5 font-medium text-slate-600 hover:bg-slate-100"
+              >
+                Refresh
+              </button>
+            </>
+          )}
+        </div>
+      )}
+
       {/* Driver Info */}
       <div className="rounded-xl border border-slate-100 bg-slate-50 p-4 space-y-4">
         <SectionLabel>Driver Information</SectionLabel>
         <ComboBox
           title="Driver Name"
           required
-          items={data.drivers.map((driver, i) => ({ id: i, name: driver[0] }))}
+          items={formData.drivers.map((driver, i) => ({ id: i, name: driver[0] }))}
           selectedPerson={selectedDriver}
           setSelectedPerson={setSelectedDriver}
         />
@@ -262,7 +326,7 @@ export default function MainForm() {
         <ComboBoxGroup
           title="Coaching Type"
           required
-          items={data.types.map((typeone) => ({
+          items={formData.types.map((typeone) => ({
             ...typeone,
             items: (typeone.items || []).map((item) => ({ id: item, name: item })),
           }))}
@@ -312,7 +376,7 @@ export default function MainForm() {
         <ComboBox
           title="Submitted By"
           required
-          items={data.users.map((name, i) => ({ id: i, name }))}
+          items={formData.users.map((name, i) => ({ id: i, name }))}
           selectedPerson={submittedBy}
           setSelectedPerson={setSubmittedBy}
         />
