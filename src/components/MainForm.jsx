@@ -1,5 +1,6 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import useAxios from "axios-hooks";
+import axios from "axios";
 import ComboBox from "./ComboBox";
 import ComboBoxGroup from "./ComboBoxGroup";
 import Spinner from "./Spinner";
@@ -122,24 +123,57 @@ export default function MainForm() {
   // first paint even while the network request is still in flight.
   const [cachedData, setCachedData] = useState(loadCachedDropdowns);
 
-  // 60s timeout so a stalled request gives up instead of spinning forever.
-  const [{ data, loading, error }, refetchTypes] = useAxios({
-    url: endPoint + "?route=getIncidentTypes",
-    method: "GET",
-    timeout: 60000,
-  });
+  const [liveData, setLiveData] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [loadFailed, setLoadFailed] = useState(false);
 
-  // Whenever a good response arrives, keep it for next time.
-  useEffect(() => {
-    if (isUsablePayload(data)) {
-      saveCachedDropdowns(data);
-      setCachedData(data);
+  // Google intermittently answers this endpoint with an HTML page reading
+  // "Sorry, unable to open the file at this time" — and sends it with an
+  // HTTP 200, so it looks like success. It is a Drive-side hiccup, not a
+  // real failure, and a retry a moment later almost always works. So we
+  // attempt up to MAX_ATTEMPTS times before giving up, checking the SHAPE
+  // of what came back rather than trusting the status code.
+  const loadDropdowns = useCallback(async () => {
+    const MAX_ATTEMPTS = 4;
+    setLoading(true);
+    setLoadFailed(false);
+
+    for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+      try {
+        const res = await axios.get(endPoint + "?route=getIncidentTypes", {
+          timeout: 60000,
+        });
+        if (isUsablePayload(res?.data)) {
+          setLiveData(res.data);
+          saveCachedDropdowns(res.data);
+          setCachedData(res.data);
+          setLoading(false);
+          return;
+        }
+        // Wrong shape: HTML error page, or an {error:...} body. Retry.
+      } catch (e) {
+        // Network error or timeout. Retry.
+      }
+
+      if (attempt < MAX_ATTEMPTS) {
+        // Back off a little further each time: 1.5s, 3s, 4.5s.
+        await new Promise((r) => setTimeout(r, 1500 * attempt));
+      }
     }
-  }, [data]);
+
+    setLoading(false);
+    setLoadFailed(true);
+  }, []);
+
+  useEffect(() => {
+    loadDropdowns();
+  }, [loadDropdowns]);
+
+  const refetchTypes = loadDropdowns;
 
   // Prefer the live response; fall back to the stored copy.
-  const formData = isUsablePayload(data) ? data : cachedData;
-  const usingCachedCopy = !isUsablePayload(data) && !!cachedData;
+  const formData = liveData || cachedData;
+  const usingCachedCopy = !liveData && !!cachedData;
 
   // Submitting. Separate timeout; a failure here must NOT wipe the form.
   const [{ loading: postLoading }, executePost] = useAxios(
@@ -255,8 +289,9 @@ export default function MainForm() {
       <div className="rounded-lg border border-amber-200 bg-amber-50 p-5 text-sm text-amber-900">
         <p className="font-semibold">The form could not load its data.</p>
         <p className="mt-1 text-amber-800">
-          This is usually the Google Sheets backend being slow or busy. Nothing
-          you submitted has been lost.
+          Google&rsquo;s servers turned down several attempts in a row. This is a
+          temporary problem on their end, not with anything you did. Press Try
+          again — it usually works within a few seconds.
         </p>
         <button
           type="button"
