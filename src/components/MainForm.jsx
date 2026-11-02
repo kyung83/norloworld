@@ -100,6 +100,12 @@ export default function MainForm() {
   const [scheduledStartTime, setScheduledStartTime] = useState("");
 
   const [fileData, setFileData] = useState(null);
+  // Bumped after a successful submit to force the file input to remount.
+  // A file input is uncontrolled - React cannot clear the filename the
+  // browser displays by setting state, so the old attachment stayed
+  // visible on the form after submitting. Remounting gives a fresh,
+  // genuinely empty input.
+  const [fileInputKey, setFileInputKey] = useState(0);
   const [warning, setWarning] = useState(false);
   const [successMessage, setSuccessMessage] = useState(false);
   const [submitError, setSubmitError] = useState("");
@@ -255,6 +261,7 @@ export default function MainForm() {
       setDescription("");
       setHomeTerminal("");
       setFileData(null);
+      setFileInputKey((k) => k + 1);   // clears the filename shown by the input
       setSubmittedBy({});
       setSelectedDriver({});
       setSelectedIncident(null);
@@ -431,6 +438,7 @@ export default function MainForm() {
 
         <Field label="Attachment (optional)">
           <input
+            key={fileInputKey}
             type="file"
             onChange={handleFileChange}
             multiple
