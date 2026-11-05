@@ -49,6 +49,18 @@ const saveCachedDropdowns = (d) => {
   }
 };
 
+// A unique id for one submission attempt. It is generated once per press
+// of Submit and reused for every retry of that same coaching, which is
+// what lets the backend recognise a retry and refuse to write it twice.
+const newSubmissionId = () => {
+  try {
+    if (window.crypto && window.crypto.randomUUID) return window.crypto.randomUUID();
+  } catch (e) {
+    /* older browser - fall through */
+  }
+  return "sub-" + Date.now() + "-" + Math.random().toString(36).slice(2, 10);
+};
+
 const getTodayDate = () => new Date().toISOString().split("T")[0];
 
 const formatDateForDescription = (dateValue) => {
@@ -234,6 +246,8 @@ export default function MainForm() {
       return setWarning(true);
     }
 
+    const submissionId = newSubmissionId();
+
     const body = {
       driverName: selectedDriver.name,
       homeTerminal: selectedHomeTerminal,
@@ -242,22 +256,11 @@ export default function MainForm() {
       incident: selectedIncident.name,
       submittedBy: submittedBy.name,
       contactMethod: contactMethod,
+      submissionId: submissionId,
       file: fileData,
     };
 
-    try {
-      const response = await executePost({ data: JSON.stringify(body) });
-
-      // The backend answers HTTP 200 even when it fails, so the real
-      // status lives in the body. Check it before declaring success.
-      const result = response?.data;
-      if (result && (result.status === "error" || result.error)) {
-        setSubmitError(
-          result.message || result.error || "The server rejected the submission."
-        );
-        return;
-      }
-
+    const clearForm = () => {
       setDescription("");
       setHomeTerminal("");
       setFileData(null);
@@ -273,13 +276,59 @@ export default function MainForm() {
       setSuccessMessage(true);
       setWarning(false);
       setTimeout(() => setSuccessMessage(false), 4000);
-    } catch (err) {
-      // Network failure or timeout. Keep everything the user typed on
-      // screen so they can simply press Submit again.
-      setSubmitError(
-        "Could not reach the server. Your entries are still here — press Submit to try again."
-      );
+    };
+
+    // An Apps Script POST answers through a redirect, and that redirect
+    // sometimes fails AFTER the coaching has already been written. When it
+    // does, the server replies {"error":"Endpoint not found"} even though
+    // the record saved fine - which is indistinguishable from here.
+    //
+    // So we just send again, carrying the SAME submissionId. The backend
+    // writes a given id at most once, so a retry either completes a
+    // submission that never landed, or is recognised as a repeat and
+    // ignored. Either way exactly one coaching record exists, and the
+    // driver gets exactly one ASR message.
+    const MAX_TRIES = 3;
+    let lastDetail = "";
+
+    for (let attempt = 1; attempt <= MAX_TRIES; attempt++) {
+      let result = null;
+
+      try {
+        const response = await executePost({ data: JSON.stringify(body) });
+        result = response?.data;
+      } catch (err) {
+        lastDetail = "could not reach the server";
+      }
+
+      // Saved. status 'ok' covers both a fresh write and the backend
+      // telling us this id was already recorded.
+      if (result && result.status === "ok") {
+        clearForm();
+        return;
+      }
+
+      // A genuine rejection - retrying will not change the outcome,
+      // unless the backend explicitly flagged it as worth retrying.
+      if (result && result.status === "error" && !result.retryable) {
+        setSubmitError(result.message || "The server rejected the submission.");
+        return;
+      }
+
+      if (result) {
+        lastDetail = result.message || result.error || "unrecognised response";
+      }
+
+      if (attempt < MAX_TRIES) {
+        await new Promise((r) => setTimeout(r, 1500 * attempt));
+      }
     }
+
+    setSubmitError(
+      "Could not confirm this submission after several attempts (" + lastDetail + "). " +
+      "Your entries are still here, and it is safe to press Submit again - the server " +
+      "will not record the same coaching twice."
+    );
   }
 
   // ---- Load states -------------------------------------------------
